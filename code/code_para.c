@@ -1,79 +1,60 @@
 #include <stdio.h>
-#include <limits.h>
+#include <stdlib.h>
 #include <stdbool.h>
-#include <pthread.h>
+#include <limits.h>
 #include <time.h>
+#include <pthread.h>
 
-#define N 5 // Nombre de villes
-#define NUM_THREADS 1 // Nombre de threads
+int minCost = INT_MAX; // Minimum cost found so far, initialized to max integer value
+int *finalPath;  // Array to store the final path with the minimum cost
+pthread_mutex_t lock; // Mutex for thread safety
+int global_thread_count = 0; // Global variable to count the number of threads
+pthread_mutex_t count_lock; // Mutex to protect thread count updates
+int max_threads; // Max number of threads specified by the user
 
-int costMatrix[N][N] = {
-    {0, 10, 15, 20, 25},
-    {10, 0, 35, 25, 30},
-    {15, 35, 0, 30, 40},
-    {20, 25, 30, 0, 15},
-    {25, 30, 40, 15, 0}
-};
+typedef struct {
+    int numCities;
+    int currentCost;
+    bool visited[20]; // Adjust size as necessary for maximum numCities
+    int level;
+    int path[20]; // Adjust size as necessary for maximum numCities
+    int **costMatrix;
+} TSPArgs;
 
-/*
-5
-{0, 10, 15, 20, 25},
-    {10, 0, 35, 25, 30},
-    {15, 35, 0, 30, 40},
-    {20, 25, 30, 0, 15},
-    {25, 30, 40, 15, 0}
+// Function to dynamically allocate and generate the cost matrix
+void generateCostMatrix(int numCities, int **costMatrix, int minCost, int maxCost) {
+    srand(time(NULL)); // Seed for random number generation
 
-6
-{0, 10, 15, 20, 25, 30},
-    {10, 0, 35, 25, 30, 40},
-    {15, 35, 0, 30, 40, 45},
-    {20, 25, 30, 0, 15, 50},
-    {25, 30, 40, 15, 0, 55},
-    {30, 40, 45, 50, 55, 0}
-7
-    {0, 10, 15, 20, 25, 30, 35},
-    {10, 0, 35, 25, 30, 40, 45},
-    {15, 35, 0, 30, 40, 45, 50},
-    {20, 25, 30, 0, 15, 50, 55},
-    {25, 30, 40, 15, 0, 55, 60},
-    {30, 40, 45, 50, 55, 0, 65},
-    {35, 45, 50, 55, 60, 65, 0}
-8
-    {0, 10, 15, 20, 25, 30, 35, 40},
-    {10, 0, 35, 25, 30, 40, 45, 50},
-    {15, 35, 0, 30, 40, 45, 50, 55},
-    {20, 25, 30, 0, 15, 50, 55, 60},
-    {25, 30, 40, 15, 0, 55, 60, 65},
-    {30, 40, 45, 50, 55, 0, 65, 70},
-    {35, 45, 50, 55, 60, 65, 0, 75},
-    {40, 50, 55, 60, 65, 70, 75, 0}
+    for (int i = 0; i < numCities; i++) {
+        for (int j = 0; j < numCities; j++) {
+            if (i == j) {
+                costMatrix[i][j] = 0; // Cost to travel to the same city is 0
+            } else {
+                costMatrix[i][j] = minCost + rand() % (maxCost - minCost + 1);
+                costMatrix[j][i] = costMatrix[i][j]; // Symmetric matrix
+            }
+        }
+    }
+}
 
-    10
-    {0,   29, 20, 21,  16, 31, 100, 12,  4, 31},
-    {29,   0, 15, 29,  28, 40,  72, 21, 29, 40},
-    {20,  15,  0, 15,  14, 25,  45, 26, 15, 36},
-    {21,  29, 15,  0,  22, 20,  42, 24, 22, 31},
-    {16,  28, 14, 22,   0, 30, 100, 18,  9, 25},
-    {31,  40, 25, 20,  30,  0,  45, 29, 23, 24},
-    {100, 72, 45, 42, 100, 45,   0, 70, 66, 71},
-    {12,  21, 26, 24,  18, 29,  70,  0, 15, 20},
-    {4,   29, 15, 22,   9, 23,  66, 15,  0, 20},
-    {31,  40, 36, 31,  25, 24,  71, 20, 20,  0},
-    
-*/
+// Function to print the cost matrix
+void printCostMatrix(int numCities, int **costMatrix) {
+    for (int i = 0; i < numCities; i++) {
+        for (int j = 0; j < numCities; j++) {
+            printf("%d\t", costMatrix[i][j]);
+        }
+        printf("\n");
+    }
+}
 
-int minCost = INT_MAX; // Coût minimal global
-int finalPath[N + 1]; // Chemin final pour le coût minimum
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Mutex pour protéger l'accès à minCost
-
-// Calcul de la borne inférieure
-int calculateBound(int currentCost, bool visited[], int level, int path[]) {
+// Function to calculate the bound (lower bound for Branch and Bound)
+int calculateBound(int numCities, int currentCost, bool visited[], int **costMatrix) {
     int bound = currentCost;
 
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < numCities; i++) {
         if (!visited[i]) {
             int minEdge = INT_MAX;
-            for (int j = 0; j < N; j++) {
+            for (int j = 0; j < numCities; j++) {
                 if (i != j && !visited[j] && costMatrix[i][j] < minEdge) {
                     minEdge = costMatrix[i][j];
                 }
@@ -86,97 +67,138 @@ int calculateBound(int currentCost, bool visited[], int level, int path[]) {
     return bound;
 }
 
-// Fonction récursive de Branch and Bound
-void TSPRec(int currentCost, bool visited[], int level, int path[]) {
-    if (level == N) {
-        int finalCost = currentCost + costMatrix[path[level - 1]][path[0]];
-        
-        pthread_mutex_lock(&mutex); // Verrouillage pour accès à minCost
-        if (finalCost < minCost) {
+// Recursive Branch and Bound function (threaded)
+void *TSPRec(void *arg) {
+    TSPArgs *tspArgs = (TSPArgs *)arg;
+    int numCities = tspArgs->numCities;
+    int currentCost = tspArgs->currentCost;
+    bool *visited = tspArgs->visited;
+    int level = tspArgs->level;
+    int *path = tspArgs->path;
+    int **costMatrix = tspArgs->costMatrix;
+
+    if (level == numCities) { // If we reach the last level
+        int finalCost = currentCost + costMatrix[path[level - 1]][path[0]]; // Complete the tour
+        pthread_mutex_lock(&lock); // Lock before updating shared resources
+        if (finalCost < minCost) { // Update minimum cost and path if a new minimum is found
             minCost = finalCost;
-            for (int i = 0; i < N; i++) {
+            for (int i = 0; i < numCities; i++) {
                 finalPath[i] = path[i];
             }
-            finalPath[N] = path[0];
+            finalPath[numCities] = path[0]; // Make it a cycle
         }
-        pthread_mutex_unlock(&mutex); // Déverrouillage
-        return;
+        pthread_mutex_unlock(&lock); // Unlock after updating
+        return NULL;
     }
 
-    for (int i = 0; i < N; i++) {
+    // Explore each unvisited city
+    pthread_t threads[20]; // Adjust size based on the maximum number of cities
+    int thread_count_local = 0;
+
+    for (int i = 0; i < numCities; i++) {
         if (!visited[i]) {
             int nextCost = currentCost + costMatrix[path[level - 1]][i];
-
             visited[i] = true;
             path[level] = i;
 
-            int bound = calculateBound(nextCost, visited, level, path);
+            int bound = calculateBound(numCities, nextCost, visited, costMatrix);
 
-            if (bound < minCost) { // Branch and Bound
-                TSPRec(nextCost, visited, level + 1, path);
+            if (bound < minCost && global_thread_count < max_threads) { // Branch and Bound
+                TSPArgs *newArgs = malloc(sizeof(TSPArgs));
+                *newArgs = *tspArgs; // Copy arguments
+                newArgs->currentCost = nextCost;
+                newArgs->level = level + 1;
+
+                pthread_mutex_lock(&count_lock); // Lock for updating thread count
+                global_thread_count++; // Increment global thread count
+                pthread_mutex_unlock(&count_lock);
+
+                if (pthread_create(&threads[thread_count_local++], NULL, TSPRec, newArgs) != 0) {
+                    perror("Failed to create thread");
+                    free(newArgs);
+                }
             }
 
-            visited[i] = false;
+            visited[i] = false; // Backtrack
         }
     }
-}
 
-// Structure pour les arguments de chaque thread
-typedef struct {
-    int startNode;
-} ThreadArgs;
+    // Wait for all threads to finish
+    for (int j = 0; j < thread_count_local; j++) {
+        pthread_join(threads[j], NULL);
+    }
 
-void *TSPThread(void *arg) {
-    ThreadArgs *args = (ThreadArgs *)arg;
-    int startNode = args->startNode;
-
-    bool visited[N] = { false };
-    int path[N + 1];
-    visited[0] = true;
-    visited[startNode] = true;
-    path[0] = 0;
-    path[1] = startNode;
-
-    TSPRec(costMatrix[0][startNode], visited, 2, path);
     return NULL;
 }
 
-int main() {
-    pthread_t threads[NUM_THREADS];
-    ThreadArgs threadArgs[NUM_THREADS];
-    clock_t start, end;
-    double cpu_time_used;
+// Main TSP function
+void TSP(int numCities, int **costMatrix) {
+    bool visited[20]; // Adjust size as necessary for maximum numCities
+    int path[20]; // Adjust size as necessary for maximum numCities
+    finalPath = malloc((numCities + 1) * sizeof(int));
+    for (int i = 0; i < numCities; i++) visited[i] = false;
 
-    // Commence à mesurer le temps
-    start = clock();
+    visited[0] = true; // Start from the first city
+    path[0] = 0;
 
-    // Créer les threads
-    for (int i = 1; i < N; i++) {
-        threadArgs[i - 1].startNode = i;
-        pthread_create(&threads[i - 1], NULL, TSPThread, &threadArgs[i - 1]);
-    }
+    TSPArgs args = {numCities, 0, {0}, 1, {0}, costMatrix};
+    TSPRec(&args);
 
-    // Attendre la fin de chaque thread
-    for (int i = 1; i < N; i++) {
-        pthread_join(threads[i - 1], NULL);
-    }
-
-    // Fin de la mesure du temps
-    end = clock();
-
-    // Calculer le temps CPU utilisé en secondes
-    cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-
-    // Afficher les résultats
-    printf("Cout minimum : %d\n", minCost);
-    printf("Chemin : ");
-    for (int i = 0; i <= N; i++) {
+    printf("Minimum Cost: %d\n", minCost);
+    printf("Path: ");
+    for (int i = 0; i <= numCities; i++) {
         printf("%d ", finalPath[i]);
     }
     printf("\n");
 
-    printf("Temps d\'exécution : %f secondes\n", cpu_time_used);
-    printf("Nombre de threads utilises : %d\n", NUM_THREADS);
+    printf("Total Threads Created: %d\n", global_thread_count); // Display number of threads used
+
+    free(finalPath);
+}
+
+int main() {
+    int numCities;
+    printf("Enter the number of cities: ");
+    scanf("%d", &numCities);
+
+    printf("Enter the maximum number of threads to use: ");
+    scanf("%d", &max_threads); // Get the maximum number of threads from user
+
+    // Dynamically allocate memory for the cost matrix
+    int **costMatrix = malloc(numCities * sizeof(int *));
+    for (int i = 0; i < numCities; i++) {
+        costMatrix[i] = malloc(numCities * sizeof(int));
+    }
+
+    // Generate and print the cost matrix
+    generateCostMatrix(numCities, costMatrix, 10, 100);
+    printf("Generated Cost Matrix:\n");
+    printCostMatrix(numCities, costMatrix);
+
+    // Measure execution time in microseconds
+    clock_t start, end;
+    start = clock();
+
+    // Initialize mutex
+    pthread_mutex_init(&lock, NULL);
+    pthread_mutex_init(&count_lock, NULL); // Initialize mutex for thread count
+
+    // Run the TSP algorithm
+    TSP(numCities, costMatrix);
+
+    // Destroy mutex
+    pthread_mutex_destroy(&lock);
+    pthread_mutex_destroy(&count_lock); // Destroy mutex for thread count
+
+    end = clock();
+    double cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC * 1000000.0;
+    printf("Execution Time: %f microseconds\n", cpu_time_used);
+
+    // Free dynamically allocated memory
+    for (int i = 0; i < numCities; i++) {
+        free(costMatrix[i]);
+    }
+    free(costMatrix);
 
     return 0;
 }
