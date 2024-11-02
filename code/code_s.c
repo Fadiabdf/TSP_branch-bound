@@ -3,16 +3,17 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <time.h>
+#include "cost_matrix.h"
 
 /****************************************************************************************************************************** */
-/**********************************************| code sequentiel |************************************************************* */
+/**********************************************| code séquentiel |************************************************************* */
 /****************************************************************************************************************************** */
 
-#define MAX 100  // nombre maximale des villes à visiter
+#define MAX 100  // nombre maximal des villes à visiter
 
 int N;                     // nombre de villes à visiter
-int **costMatrix;          // la matrice des couts (distance entre une villes i et une autre ville j ) tq i --> i ,cout =0 | i-->j et j-->i ont meme cout
-int minCost = INT_MAX;     // cout minimale globale initialisé à l'infini (un très grand nombre)
+int **costMatrix;          // la matrice des coûts (distance entre une ville i et une autre ville j) tq i --> i, coût = 0 | i-->j et j-->i ont même coût
+int minCost = INT_MAX;     // coût minimal global initialisé à l'infini (un très grand nombre)
 int *finalPath;            // le chemin optimal
 
 // fonction pour copier le chemin courant dans le chemin final (optimal)
@@ -23,7 +24,7 @@ void copyPath(int path[]) {
     finalPath[N] = path[0];  // retourner à la ville de départ
 }
 
-// fonction qui calcule la bonde inferieure "lower bound"
+// fonction qui calcule la borne inférieure "lower bound"
 int calculateBound(int currentCost, bool visited[], int level, int path[]) {
     int bound = currentCost;
 
@@ -43,7 +44,7 @@ int calculateBound(int currentCost, bool visited[], int level, int path[]) {
     return bound;
 }
 
-// fonction récursive pour  TSP utilisant la methode de  "Branch and Bound"
+// fonction récursive pour le TSP utilisant la méthode de "Branch and Bound"
 void TSPRec(int currentCost, bool visited[], int level, int path[]) {
     if (level == N) {
         int finalCost = currentCost + costMatrix[path[level - 1]][path[0]];
@@ -66,42 +67,12 @@ void TSPRec(int currentCost, bool visited[], int level, int path[]) {
                 TSPRec(nextCost, visited, level + 1, path);
             }
 
-            visited[i] = false;  // Backtracking
+            visited[i] = false;  // Retour arrière (Backtracking)
         }
     }
 }
 
-// fonction pour générer la matrice des couts aléatoirement  pour avoir des données sur les distances entre les villes
-void generateCostMatrix(int numCities, int minCostVal, int maxCostVal) {
-    costMatrix = (int **)malloc(numCities * sizeof(int *));
-    for (int i = 0; i < numCities; i++) {
-        costMatrix[i] = (int *)malloc(numCities * sizeof(int));
-    }
-    srand(time(NULL));
-
-    for (int i = 0; i < numCities; i++) {
-        for (int j = 0; j < numCities; j++) {
-            if (i == j) {
-                costMatrix[i][j] = 0;
-            } else {
-                costMatrix[i][j] = minCostVal + rand() % (maxCostVal - minCostVal + 1);
-                costMatrix[j][i] = costMatrix[i][j];
-            }
-        }
-    }
-}
-
-// fonction pour afficher la matrice des cour generee
-void printCostMatrix(int numCities) {
-    for (int i = 0; i < numCities; i++) {
-        for (int j = 0; j < numCities; j++) {
-            printf("%d\t", costMatrix[i][j]);
-        }
-        printf("\n");
-    }
-}
-
-// fonction principale de TSP 
+// fonction principale du TSP 
 void TSP() {
     bool visited[MAX] = {false};
     int path[MAX + 1];
@@ -121,19 +92,32 @@ void TSP() {
 }
 
 int main() {
-    int minCostVal, maxCostVal;
+    int minCostVal = 10, maxCostVal = 100;
     
-    printf("Entrez le nombre de villes : ");
+    printf("Entrez le nombre de villes (maximum %d) : ", MAX);
     scanf("%d", &N);
+    
+    // Validation du nombre de villes
+    if (N < 1 || N > MAX) {
+        printf("Le nombre de villes doit etre entre 1 et %d.\n", MAX);
+        return 1;  // Quitter le programme si l'entrée est invalide
+    }
 
-    generateCostMatrix(N, 10, 100);
+    // Allocation de mémoire pour la matrice des coûts
+    costMatrix = (int **)malloc(N * sizeof(int *));
+    for (int i = 0; i < N; i++) {
+        costMatrix[i] = (int *)malloc(N * sizeof(int));
+    }
+
+    // Générer la matrice des coûts
+    generateCostMatrix(costMatrix, N, minCostVal, maxCostVal);
 
     printf("Matrice des couts generee :\n");
-    printCostMatrix(N);
+    printCostMatrix(costMatrix, N); // Passer costMatrix à la fonction d'impression
 
-    // Mesurer le temps d'execution en millisecondes que de la partie TSP // on s'interesse pas au temps d'execution de la génération de la matrice des couts
+    // Mesurer le temps d'exécution en millisecondes pour la partie TSP
     clock_t start, end;
-    start = clock();  // debut 
+    start = clock();  // début 
 
     TSP();
 
@@ -141,7 +125,7 @@ int main() {
     double cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC * 1000.0;
     printf("Temps d\'execution : %f millisecondes\n", cpu_time_used);
 
-    // libération dynamique de la mémoire allouée
+    // Libération dynamique de la mémoire allouée
     for (int i = 0; i < N; i++) {
         free(costMatrix[i]);
     }

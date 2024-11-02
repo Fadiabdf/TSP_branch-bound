@@ -4,13 +4,14 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
+#include "cost_matrix.h"
 
 /****************************************************************************************************************************** */
 /**********************************************| code parallèle |************************************************************** */
 /****************************************************************************************************************************** */
 
 #define MAX 100
-#define NUM_THREADS 4
+#define NUM_THREADS 8
 
 int N; // Nombre de villes
 int **costMatrix; // Matrice des coûts entre les villes
@@ -61,7 +62,7 @@ void *TSPThread(void *arg) {
     // Si toutes les villes ont été visitées, calculer le coût final
     if (data->level == N) {
         int finalCost = data->currentCost + costMatrix[data->path[data->level - 1]][data->path[0]];
-        
+
         // Accéder au coût minimum global en utilisant un verrou
         pthread_mutex_lock(&lock);
         if (finalCost < minCost) {
@@ -87,8 +88,7 @@ void *TSPThread(void *arg) {
                 ThreadData newData = *data;
                 newData.currentCost = nextCost;
                 newData.level = data->level + 1;
-                newData.visited[i] = true;
-                newData.path[data->level] = i;
+                newData.path[newData.level] = i;
 
                 TSPThread(&newData); // Appel récursif pour approfondir la recherche
             }
@@ -120,6 +120,7 @@ void TSP() {
             threadData[i].path[j] = path[j];
         }
         threadData[i].visited[0] = true;
+        threadData[i].path[0] = 0; // Assurez-vous de définir la ville de départ
 
         if (pthread_create(&threads[i], NULL, TSPThread, (void *)&threadData[i]) != 0) {
             perror("Erreur lors de la creation du thread");
@@ -141,49 +142,27 @@ void TSP() {
     printf("\n");
 }
 
-// Fonction pour générer dynamiquement la matrice des coûts
-void generateCostMatrix(int numCities, int minCost, int maxCost) {
-    costMatrix = (int **)malloc(numCities * sizeof(int *));
-    for (int i = 0; i < numCities; i++) {
-        costMatrix[i] = (int *)malloc(numCities * sizeof(int));
-    }
-
-    srand(time(NULL));
-
-    // Remplir la matrice avec des coûts aléatoires symétriques
-    for (int i = 0; i < numCities; i++) {
-        for (int j = 0; j < numCities; j++) {
-            if (i == j) {
-                costMatrix[i][j] = 0;
-            } else {
-                costMatrix[i][j] = minCost + rand() % (maxCost - minCost + 1);
-                costMatrix[j][i] = costMatrix[i][j];
-            }
-        }
-    }
-}
-
-// Fonction pour afficher la matrice des coûts
-void printCostMatrix(int numCities) {
-    for (int i = 0; i < numCities; i++) {
-        for (int j = 0; j < numCities; j++) {
-            printf("%d\t", costMatrix[i][j]);
-        }
-        printf("\n");
-    }
-}
-
 int main() {
-    int minCostVal = 5, maxCostVal = 100;
+    int minCostVal = 10, maxCostVal = 100;
 
     // Lire le nombre de villes
     printf("Entrez le nombre de villes : ");
     scanf("%d", &N);
 
+    // Validation du nombre de villes
+    if (N < 1 || N > MAX) {
+        printf("Le nombre de villes doit etre entre 1 et %d.\n", MAX);
+        return 1; // Quitter le programme si l'entrée est invalide
+    }
+
     // Générer et afficher la matrice des coûts
-    generateCostMatrix(N, minCostVal, maxCostVal);
+    costMatrix = (int **)malloc(N * sizeof(int *));
+    for (int i = 0; i < N; i++) {
+        costMatrix[i] = (int *)malloc(N * sizeof(int));
+    }
+    generateCostMatrix(costMatrix, N, minCostVal, maxCostVal);
     printf("Matrice des couts generee :\n");
-    printCostMatrix(N);
+    printCostMatrix(costMatrix, N); // Passer costMatrix à la fonction d'impression
 
     pthread_mutex_init(&lock, NULL); // Initialiser le verrou
 
